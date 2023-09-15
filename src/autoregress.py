@@ -1,11 +1,11 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from utils.dataset import flowDataGenerator, flowDataSet
+from utils.dataset import flowDataGenerator, flowDataSet, x_transform, y_transform
 from torch_geometric.loader import DataLoader
 import torch.nn.functional as F
 from utils.ops import contResLoss
-from net import end2end
+from net import end2end, DoubleAttention
 import time
 import argparse
 from torch_geometric.data import Data
@@ -45,7 +45,8 @@ args = get_args()
 
 def mape_error(x, target):
 
-    mape_err = torch.mean(torch.abs(torch.div((x - target),(target+0.00001))))
+    mape_err = torch.mean(torch.abs(torch.div((x - target),(target+0.0000001))))
+    #mape_err = torch.mean(torch.square(x-target))
 
     return mape_err.item()
 
@@ -62,15 +63,15 @@ def run_time_step(batch):
 
     out = MODEL(batch)
 
-    mse_loss = F.mse_loss(out, batch.y.T[2:].T)
-    mape_err = F.mse_loss(out, batch.y.T[2:].T).item()
+    mse_loss = F.mse_loss(out, batch.y.T[3:].T)
+    #mape_err = F.mse_loss((out+batch.x.T[2:].T), batch.y.T[2:].T).item()
     #residual = CONT_LOSS(V=out, edge_feats=batch.deltas)
-    #mape_err = mape_error(x=out, target=batch.y.T[2:].T)
+    mape_err = mape_error(x=(out+batch.x.T[3:].T), target=batch.y.T[3:].T)
 
     #print(f'MSE Loss: {mse_loss}')
     #print(f'Residual Loss: {residual}')
 
-    return mse_loss, mape_err, out
+    return mse_loss, mape_err, out + batch.x.T[3:].T
 
 
 def add_boundary_conditions(boundary_table, x):
@@ -85,20 +86,31 @@ def add_boundary_conditions(boundary_table, x):
 def write_to_of_file(x, filename, filepath):
 
     return 0
-model_list = ['lrnd_gcn', 'lrnd_sage', 'lrnd_gat', 'geo_gcn', 'geo_sage', 'geo_gat']
-lrnd_bool = [True, True, True, False, False, False]
-conv_list = [GCNConv, SAGEConv, GATv2Conv, GCNConv, SAGEConv, GATv2Conv]
+model_list = ['dbl_attn','lrnd_gcn', 'lrnd_sage', 'lrnd_gat', 'geo_gcn', 'geo_sage', 'geo_gat']
+lrnd_bool = [None, True, True, True, False, False, False]
+conv_list = [None, GCNConv, SAGEConv, GATv2Conv, GCNConv, SAGEConv, GATv2Conv]
+# model_list = ['lrnd_sage','geo_sage']
+# lrnd_bool = [True, False]
+# conv_list = [SAGEConv, SAGEConv]
 geo_edges = torch.load('/home/sysiphus/bigData/snapshots/edges.pt').to(args.device)
 if __name__ == "__main__":
     fig = plt.figure()
     for i, mod in enumerate(model_list):
-        MODEL = end2end(feat_dim=args.feat_dim, in_dim=args.in_dim, out_dim=args.out_dim, pred_dim=args.pred_dim, n_attn=args.n_attn, n_convs=args.n_convs, conv_type=conv_list[i], learned_edges=lrnd_bool[i], model_name=mod, geo_edges=geo_edges)
-        MODEL.load_state_dict(torch.load(f'models/{mod}'))
-        MODEL.to(args.device)
+        if mod == 'dbl_attn':
+            MODEL = DoubleAttention(feat_dim=args.feat_dim, in_dim=args.in_dim, out_dim=args.out_dim, pred_dim=args.pred_dim, n_attn=15, model_name=mod) 
+            MODEL.load_state_dict(torch.load(f'models/euler_{mod}_2'))
+            MODEL.to(args.device)
+
+        else:
+            MODEL = end2end(feat_dim=args.feat_dim, in_dim=args.in_dim, out_dim=args.out_dim, pred_dim=args.pred_dim, n_attn=args.n_attn, n_convs=args.n_convs, conv_type=conv_list[i], learned_edges=lrnd_bool[i], model_name=mod, geo_edges=geo_edges)
+            MODEL.load_state_dict(torch.load(f'models/euler_{mod}_2'))
+            MODEL.to(args.device)
         CONT_LOSS = contResLoss()
         PATH = '/home/sysiphus/bigData/snapshots'
         PATH_VAR=800
-        START_DATA = Data(x=torch.load(f'{PATH}/func4_{PATH_VAR}_0.05_snap.pt'), y=torch.load(f'{PATH}/func4_{PATH_VAR+1}_0.05_snap.pt')).to(args.device)
+        START_DATA = Data(x=torch.load(f'{PATH}/func4_{PATH_VAR}_0.05_snap.pt'), edge_index = geo_edges, y=torch.load(f'{PATH}/func4_{PATH_VAR+1}_0.05_snap.pt')).to(args.device)
+        START_DATA.x = x_transform(START_DATA.x)
+        START_DATA.y = y_transform(START_DATA.x, START_DATA.y)
         BOUNDARIES = [(torch.tensor(range(760,780)),),(torch.tensor(range(780,840)),0)]
         mse_loss_plot = []
         residual_loss_plot = []
@@ -110,43 +122,63 @@ if __name__ == "__main__":
             msel, mape, xnew = run_time_step(START_DATA)
             mape_plot.append(mape)
             mse_loss_plot.append(msel.item())
-            x = np.reshape(xnew.T[0].T, (20,20))
-            y = np.reshape(xnew.T[1].T, (20,20))
-            vx = np.reshape(xnew.T[2].T, (20,20))
-            vy = np.reshape(xnew.T[3].T, (20,20))
-            mag_v = np.reshape(torch.sqrt((torch.square(xnew.T[2].T) + torch.square(xnew.T[3].T))), (20,20))
+            data_coords = torch.clone(START_DATA.y).detach().cpu().numpy()
+            vels = torch.clone(xnew).detach().cpu().numpy()
+            x = np.reshape(data_coords.T[0].T, (20,20))
+            y = np.reshape(data_coords.T[1].T, (20,20))
+            vx = np.reshape(vels.T[0].T, (20,20))
+            vy = np.reshape(vels.T[1].T, (20,20))
+            vxgt = np.reshape(data_coords.T[3].T, (20,20))
+            vygt = np.reshape(data_coords.T[4].T, (20,20))
+            mag_v = np.sqrt((np.square(vx) + np.square(vy)))#np.reshape(np.sqrt((np.square(vels.T[0].T) + np.square(vels.T[1].T))), (20,20))
+            mag_vgt = np.sqrt((np.square(vxgt) + np.square(vygt)))#np.reshape(np.sqrt((np.square(data_coords.T[2].T) + np.square(data_coords.T[3].T))), (20,20))
 
 
-            fig, ax = plt.subplots()
-            c = ax.pcolormesh(x,y,vx, cmap='RdBu')#, vmin=-z.max(), vmax=z.max())
-            ax.set_title('pcolormesh')
-            ax.axis([x.min(), x.max(), y.min(), y.max()])
-            fig.colorbar(c, ax=ax)
-            plt.savefig(f'../{mod}/vx_{time_step}.png')
-            fig, ax = plt.subplots()
-            c = ax.pcolormesh(x,y,vy, cmap='RdBu')#, vmin=-z.max(), vmax=z.max())
-            ax.set_title('pcolormesh')
-            ax.axis([x.min(), x.max(), y.min(), y.max()])
-            fig.colorbar(c, ax=ax)
-            plt.savefig(f'../{mod}/vy_{time_step}.png')
-            fig, ax = plt.subplots()
-            c = ax.pcolormesh(x,y,mag_v, cmap='RdBu')#, vmin=-z.max(), vmax=z.max())
-            ax.set_title('pcolormesh')
-            ax.axis([x.min(), x.max(), y.min(), y.max()])
-            fig.colorbar(c, ax=ax)
-            plt.savefig(f'../{mod}/mag_v_{time_step}.png')
+            fig, (ax1,ax2) = plt.subplots(1,2)
+            c = ax1.pcolormesh(x,y,vx, cmap='RdBu')#, vmin=-z.max(), vmax=z.max())
+            d = ax2.pcolormesh(x, y, vxgt, cmap="RdBu")
+            #ax.set_title('pcolormesh')
+            ax1.axis([x.min(), x.max(), y.min(), y.max()])
+            ax2.axis([x.min(), x.max(), y.min(), y.max()])
+            fig.colorbar(c, ax=ax1)
+            #.colorbar(d, ax=ax2)
+            plt.savefig(f'{mod}/vx_{time_step}.png')
+            plt.close()
+            fig, (ax1,ax2) = plt.subplots(1,2)
+            c = ax1.pcolormesh(x,y,vy, cmap='RdBu')#, vmin=-z.max(), vmax=z.max())
+            d = ax2.pcolormesh(x, y, vygt, cmap="RdBu")
+            #ax.set_title('pcolormesh')
+            ax1.axis([x.min(), x.max(), y.min(), y.max()])
+            ax2.axis([x.min(), x.max(), y.min(), y.max()])
+            fig.colorbar(c, ax=ax1)
+            #.colorbar(d, ax=ax2)
+            plt.savefig(f'{mod}/vy_{time_step}.png')
+            plt.close()
+            fig, (ax1,ax2) = plt.subplots(1,2)
+            c = ax1.pcolormesh(x,y,mag_v, cmap='RdBu')#, vmin=-z.max(), vmax=z.max())
+            d = ax2.pcolormesh(x, y, mag_vgt, cmap="RdBu")
+            #ax.set_title('pcolormesh')
+            ax1.axis([x.min(), x.max(), y.min(), y.max()])
+            ax2.axis([x.min(), x.max(), y.min(), y.max()])
+            fig.colorbar(c, ax=ax1)
+            #.colorbar(d, ax=ax2)
+            plt.savefig(f'{mod}/magv_{time_step}.png')
+            plt.close()
+            
 
 
-            xnew2 = torch.cat((START_DATA.x.T[0:2].T,xnew), dim=-1)
+            xnew2 = torch.cat((START_DATA.x.T[0:3].T,xnew), dim=-1)
             PATH_VAR += 1
-            START_DATA = Data(x=xnew2, y=torch.load(f'{PATH}/func4_{PATH_VAR+1}_0.05_snap.pt')).to(args.device)
+            START_DATA = Data(x=xnew2, edge_index=geo_edges, y=torch.load(f'{PATH}/func4_{PATH_VAR+1}_0.05_snap.pt')).to(args.device)
+            START_DATA.x = x_transform(START_DATA.x)
+            START_DATA.y = y_transform(START_DATA.x, START_DATA.y)
 
 
-        plt.plot(np.linspace(330,494,len(mape_plot)), mape_plot, label=f"{mod[0:13]}")
+        plt.plot(np.linspace(800,999,len(mape_plot)), mape_plot, label=f"{mod}")
 
-#plt.yscale('log')
+plt.yscale('log')
 #plt.ylim([1,10**1])
 #plt.xlim([0,1])
 plt.legend()
 #plt.xlim([0,5])
-plt.savefig('figs/testvalall.png')
+plt.savefig('figs/testAutoAll6.png')

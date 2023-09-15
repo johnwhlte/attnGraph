@@ -1,4 +1,4 @@
-from utils.ops import MHABlock, Graph_Conv, Initializer
+from utils.ops import MHABlock, Graph_Conv, Initializer, MHDABlock
 import torch
 from torch_geometric.nn import GCNConv
 import torch.nn as nn
@@ -50,10 +50,65 @@ class end2end(nn.Module):
                 else:
                     adj = attn_block(attn, end=True)
         else:
-            adj = self.geo_edges
+            adj = batch.edge_index
         
         for i, conv in enumerate(self.convs):
             x = conv(x, adj)
+
+        x = self.lin1(x)
+        x = self.leaky(x)
+        x = self.lin2(x)
+        x = self.leaky(x)
+        pred = self.lin3(x)
+
+        return pred
+
+class DoubleAttention(nn.Module):
+
+    def __init__(self,feat_dim, in_dim, out_dim, pred_dim, n_attn, model_name='test'):
+        super(DoubleAttention, self).__init__()
+        self.attn_edges = nn.ModuleList()
+        self.model_name = model_name
+        self.lin_embed = nn.Linear(feat_dim, in_dim)
+        self.convs = nn.ModuleList()
+        self.ff1 = nn.ModuleList()
+        self.ff2 = nn.ModuleList()
+        self.lnorms = nn.ModuleList()
+        self.lin1 = nn.Linear(out_dim, 100)
+        self.lin2 = nn.Linear(100, 100)
+        self.lin3 = nn.Linear(100, pred_dim)
+        self.leaky = nn.LeakyReLU()
+
+        for i in range(n_attn):
+            if i == 0:
+                self.attn_edges.append(MHDABlock(in_dim, out_dim))
+                self.ff1.append(nn.Linear(out_dim, out_dim))
+                self.ff2.append(nn.Linear(out_dim, out_dim))
+                self.lnorms.append(nn.LayerNorm(out_dim))
+            else:
+                self.attn_edges.append(MHDABlock(in_dim, out_dim))
+                self.ff1.append(nn.Linear(out_dim, out_dim))
+                self.ff2.append(nn.Linear(out_dim, out_dim))
+                self.lnorms.append(nn.LayerNorm(out_dim))
+
+
+        Initializer.weights_init(self)
+        
+
+    def forward(self, batch):
+
+        x = batch.x
+
+        x = self.lin_embed(x)
+
+        for i, attn_layer in enumerate(self.attn_edges):
+            x = attn_layer(x) 
+            x2 = self.ff1[i](x)
+            x2 = self.leaky(x2)
+            x2 = self.ff2[i](x2)
+            #x+=x2
+            x3 = x + x2
+            x = self.lnorms[i](x3)
 
         x = self.lin1(x)
         x = self.leaky(x)

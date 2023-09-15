@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from utils.dataset import flowDataGenerator, flowDataSet
+from utils.dataset import flowDataGenerator, flowDataSet, x_transform, y_transform
 from torch_geometric.loader import DataLoader
 import torch.nn.functional as F
 from utils.ops import contResLoss, mape_error
@@ -26,7 +26,7 @@ class Trainer:
         self.model.to(self.device)
         self.lr = args.lr
         self.early_stop = args.early_stop
-        self.TRAIN_RUN=f'{self.name}'
+        self.TRAIN_RUN=f'euler_{self.name}_2'
         self.optim = torch.optim.Adam(self.model.parameters(), lr=self.lr)
         self.custom_loss = contResLoss()
 
@@ -34,8 +34,8 @@ class Trainer:
 
         train_x, train_y, val_x, val_y = flowDataGenerator(path=self.path, seed=self.seed, num_snaps=self.num_snaps, funcs_list=self.funcs_list, alpha_vals=self.alpha_vals, split_data=0.8).segment_data_paths()
         
-        train_ds = flowDataSet(train_x, train_y)
-        val_ds = flowDataSet(val_x, val_y)
+        train_ds = flowDataSet(train_x, train_y, transform=[x_transform,y_transform])
+        val_ds = flowDataSet(val_x, val_y, transform=[x_transform,y_transform])
 
         self.train_loader = DataLoader(train_ds, batch_size=self.batch_size)
         self.val_loader = DataLoader(val_ds, batch_size=self.batch_size)
@@ -46,16 +46,17 @@ class Trainer:
 
         self.optim.zero_grad()
         out = self.model(batch)
-        # mse_loss = F.mse_loss(out, batch.y.T[2:].T)
-        mape_loss = mape_error(out, batch.y.T[2:].T)
-        mape_loss.backward()
+        mse_loss = F.mse_loss(out, (batch.x.T[3:].T - batch.y.T[3:].T))
+        #mape_loss = mape_error(out, (batch.x.T[2:].T - batch.y.T[2:].T))
+        #res_loss = self.custom_loss(out+batch.x.T[2:].T, batch.edge_index)
+        (mse_loss).backward()
         # (mse_loss).backward()
         self.optim.step()
         # train_loss = mse_loss.item()
-        train_loss = mape_loss.item()
+        train_loss = mse_loss.item()
 
         print ("\033[A                             \033[A")
-        print(f"Epoch:{epoch} T | {int(100*batch_num/len(loader))} % | MAPE Loss = {train_loss:.4f}")#  | Cont Loss = {residual:.10f}")
+        print(f"Epoch:{epoch} T | {int(100*batch_num/len(loader))} % | MSE Loss = {train_loss:.7f}") #| Res Loss = {res_loss.item():.4f}")#  | Cont Loss = {residual:.10f}")
 
         return train_loss
 
@@ -65,11 +66,11 @@ class Trainer:
         out = self.model(batch)
         # loss = F.mse_loss(out, batch.y.T[2:].T)
         # val_loss = loss.item()
-        loss = mape_error(out, batch.y.T[2:].T)
+        loss = F.mse_loss(out, (batch.x.T[3:].T - batch.y.T[3:].T))
         val_loss = loss.item()
 
         print ("\033[A                             \033[A")
-        print(f"Epoch:{epoch} V | {int(100*batch_num/len(loader))} % | MSE Loss = {val_loss:.4f}  ")
+        print(f"Epoch:{epoch} V | {int(100*batch_num/len(loader))} % | MSE Loss = {val_loss:.7f}  ")
 
         return val_loss
 
@@ -81,7 +82,7 @@ class Trainer:
         avg_val_loss = float('inf')
         count = 0
         self.load_data()
-        #self.model.load_state_dict(torch.load('models/test1_func4_ckpt'))
+        #self.model.load_state_dict(torch.load(f'models/{self.name}'))
 
         for epoch in range(self.num_epochs):
 
@@ -128,8 +129,9 @@ class Trainer:
 
 
         fig = plt.figure()
-        plt.plot(epoch_plot,self.train_loss, label="training mse loss")
-        plt.plot(epoch_plot, self.val_loss, label="validation mse loss")
+        plt.yscale('log')
+        plt.plot(epoch_plot,self.train_loss, label="training mape loss")
+        plt.plot(epoch_plot, self.val_loss, label="validation mape loss")
         #plt.plot([0], [0], label=f"Loss: {self.validation_loss[-1]:.2f} + N: {len(epoch_plot)}")
         plt.legend()
         plt.savefig(f'figs/{self.TRAIN_RUN}_loss.png')

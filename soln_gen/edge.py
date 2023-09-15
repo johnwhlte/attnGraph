@@ -49,6 +49,6 @@ def gen_edge(feat_mat, min_dist):
 if __name__ == "__main__":
 
     feat_mat = torch.load('/home/sysiphus/bigData/snapshots/func4_43_0.07_snap.pt')
-    edges,_,_ = gen_edge(feat_mat=feat_mat, min_dist=0.075)
-    torch.save(edges, '/home/sysiphus/bigData/snapshots/edges.pt')
+    edges,_,_ = gen_edge(feat_mat=feat_mat, min_dist=0.055)
+    torch.save(edges, '/home/sysiphus/bigData/snapshots/true_edges.pt')
     print(edges.shape)

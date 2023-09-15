@@ -64,7 +64,19 @@ class flowDataSet(Dataset):
         """ Loads in the data """
         X = torch.load(self.feats_paths[idx])
         Y = torch.load(self.label_paths[idx]) 
+        geo_edges = torch.load('/home/sysiphus/bigData/snapshots/edges.pt')
 
-        data = Data(x=X, y=Y) # create a torch_geometric Data object from the data loaded in this dataset
+        if self.transform != None:
+            X = self.transform[0](X)
+            Y = self.transform[1](X,Y)
+
+        data = Data(x=X, edge_index=geo_edges, y=Y) # create a torch_geometric Data object from the data loaded in this dataset
 
         return data  
+
+def x_transform(x):
+
+    return (x - torch.mean(x)) / torch.std(x)
+def y_transform(x,y):
+
+    return (y - torch.mean(x)) / torch.std(x)

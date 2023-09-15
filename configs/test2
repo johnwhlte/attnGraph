@@ -1,0 +1,16 @@
+batch_size=32
+data_path="/home/sysiphus/bigData/snapshots"
+num_epochs=500
+device="cuda"
+lr=0.0005
+num_snaps=1000
+funcs_list="func4"
+alpha_vals="0.02 0.03 0.04 0.05 0.06 0.08 0.09"
+early_stop=20
+seed=27
+feat_dim=5
+in_dim=50
+out_dim=50
+pred_dim=2
+n_attn=15
+n_convs=3

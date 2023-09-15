@@ -7,15 +7,15 @@ def function1x(x, y, t, alpha):
     return -np.exp(-alpha * t)*(np.exp(x)*np.cos(y))
 def function1y(x, y, t, alpha):
     return np.exp(-alpha * t)*(np.exp(x)*np.sin(y))
-def function2x(x, y, t, alpha):
-    return -np.exp(-alpha * t)*(np.cos(x)*np.cosh(y))
+def function2x(x, y, t, alpha):#w(z) = sin(z) dwdz=cos(z)
+    return -(alpha * t)*(np.cos(alpha*t*x)*np.cosh(alpha*t*y))
 def function2y(x, y, t, alpha):
-    return np.exp(-alpha * t)*(-np.sin(x)*np.sinh(y))
-def function3x(x, y, t, alpha):
-    return -np.exp(-alpha * t)*(-np.sin(x)*np.cosh(y))
+    return (alpha * t)*(-np.sin(alpha*t*x)*np.sinh(alpha*t*y))
+def function3x(x, y, t, alpha):#w(z) = cos(z) dwdz = - sin(z)
+    return (alpha * t)*(np.sin(alpha * t*x)*np.cosh(alpha * t*y))
 def function3y(x, y, t, alpha):
-    return np.exp(-alpha * t)*(-np.sinh(y)*np.cos(x))
-def function4x(x, y, t, alpha):
+    return (-alpha * t)*(-np.sinh(alpha * t*y)*np.cos(alpha * t*x))
+def function4x(x, y, t, alpha):#w(z) = e^z dwdz = e^z
     return -alpha*t*(np.exp(alpha*x*t)*np.cos(y*t))
 def function4y(x, y, t, alpha):
     return alpha * t*(np.exp(alpha*x*t)*np.sin(y*t))
@@ -39,7 +39,8 @@ def define_soln(vel_funcs, time_vector, time_step, domain_x, domain_y, split_x, 
         #         solution_tensor = torch.cat((solution_tensor, soln), dim=-1)
 
         # soln = solution_tensor[5:]
-        list_of_solns.append(np.asarray([x.flatten(), y.flatten(), soln_tensor_vx.flatten(), soln_tensor_vy.flatten()]).T)
+        alpha_array = np.full_like(x.flatten(), alpha)
+        list_of_solns.append(np.asarray([x.flatten(), y.flatten(), alpha_array, soln_tensor_vx.flatten(), soln_tensor_vy.flatten()]).T)
 
 
 
@@ -48,9 +49,9 @@ def define_soln(vel_funcs, time_vector, time_step, domain_x, domain_y, split_x, 
 
 if __name__ == "__main__":
 
-    function_list = [[function4x, function4y]]#[[function1x,function1y],[function2x,function2y],[function3x, function3y]]
-    func_names = ["func4"]#["func1","func2","func3"]
-    alpha_list = [0.01, 0.02, 0.03, 0.04, 0.05, 0.07, 0.08]
+    function_list = [[function4x,function4y],[function2x,function2y],[function3x, function3y]]
+    func_names = ["func4","func2","func3"]
+    alpha_list = [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.09]
     times = []
     vals = []
     for i, funcs in enumerate(function_list):
@@ -66,17 +67,18 @@ if __name__ == "__main__":
             # times.append(j)
             # vals.append(snapshot[20][3])
 
-                if alpha == 0.05 and j % 10 == 0:
+                if alpha == 0.17 and j % 10 == 0:
                     x = np.reshape(snapshot.T[0].T, (20,20))
                     y = np.reshape(snapshot.T[1].T, (20,20))
-                    vx = np.reshape(snapshot.T[2].T, (20,20))
+                    vy = np.reshape(snapshot.T[4].T, (20,20))
+                    vx = np.reshape(snapshot.T[3].T, (20,20))
 
                     fig, ax = plt.subplots()
                     c = ax.pcolormesh(x,y,vx, cmap='RdBu')#, vmin=-z.max(), vmax=z.max())
                     ax.set_title('pcolormesh')
                     ax.axis([x.min(), x.max(), y.min(), y.max()])
                     fig.colorbar(c, ax=ax)
-                    plt.savefig(f'../vis/check{alpha}_{j}_.png')
+                    plt.savefig(f'../vis/{func_names[i]}check{alpha}_{j}_.png')
 
 
 #       fig = plt.figure()

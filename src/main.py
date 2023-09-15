@@ -2,7 +2,7 @@ import numpy as np
 import os
 import argparse
 from trainer import Trainer
-from net import end2end
+from net import end2end, DoubleAttention
 import torch
 from torch_geometric.nn import GCNConv, SAGEConv, GATv2Conv
 import torch.nn.functional as F
@@ -40,11 +40,16 @@ if __name__=="__main__":
 
     args = get_args()
     options = vars(args)
-    geo_edges = torch.load('/home/sysiphus/bigData/snapshots/edges.pt').to(args.device)
-    models = ['lrnd_gcn', 'lrnd_sage', 'lrnd_gat', 'geo_gcn', 'geo_sage', 'geo_gat']
-    lrn_bool = [True, True, True, False, False, False]
-    conv_list = [GCNConv, SAGEConv, GATv2Conv, GCNConv, SAGEConv, GATv2Conv]
+    geo_edges = torch.load('/home/sysiphus/bigData/snapshots/true_edges.pt').to(args.device)
+    # models = ['lrnd_gcn', 'lrnd_sage', 'lrnd_gat', 'geo_gcn', 'geo_sage', 'geo_gat']
+    # lrn_bool = [True, True, True, False, False, False]
+    # conv_list = [GCNConv, SAGEConv, GATv2Conv, GCNConv, SAGEConv, GATv2Conv]
+    models = ['dbl_attn']
+    torch.autograd.set_detect_anomaly(True)
+    #lrn_bool = [True]
+    #conv_list = [SAGEConv, SAGEConv]
     for i, mode in enumerate(models):
-        model = end2end(feat_dim=args.feat_dim, in_dim=args.in_dim, out_dim=args.out_dim, pred_dim=args.pred_dim, n_attn=args.n_attn, n_convs=args.n_convs, conv_type=conv_list[i], learned_edges=lrn_bool[i], model_name=mode, geo_edges=geo_edges)
+        #model = end2end(feat_dim=args.feat_dim, in_dim=args.in_dim, out_dim=args.out_dim, pred_dim=args.pred_dim, n_attn=args.n_attn, n_convs=args.n_convs, conv_type=conv_list[i], learned_edges=lrn_bool[i], model_name=mode, geo_edges=geo_edges)
+        model = DoubleAttention(feat_dim=args.feat_dim, in_dim=args.in_dim, out_dim=args.out_dim, pred_dim=args.pred_dim, n_attn=args.n_attn, model_name=mode) 
         trainer = Trainer(args, model, device=args.device)
         trainer.train()
